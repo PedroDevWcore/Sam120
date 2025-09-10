@@ -68,6 +68,7 @@ Após o deploy, o sistema estará disponível em:
 - **Frontend:** http://samhost.wcore.com.br
 - **Backend API:** http://samhost.wcore.com.br:3001/api
 - **Health Check:** http://samhost.wcore.com.br:3001/api/health
+- **Player iFrame:** http://samhost.wcore.com.br:3001/api/player-port/iframe
 - **Streaming RTMP:** rtmp://samhost.wcore.com.br:1935/samhost
 - **Streaming HLS:** http://samhost.wcore.com.br:1935/samhost/{usuario}_live/playlist.m3u8
 

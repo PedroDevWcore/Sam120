@@ -67,11 +67,13 @@ const IFrameVideoPlayer: React.FC<IFrameVideoPlayerProps> = ({
       // Garantir que é MP4
       const finalFileName = fileName.endsWith('.mp4') ? fileName : fileName.replace(/\.[^/.]+$/, '.mp4');
       
-      // SEMPRE usar domínio do Wowza, NUNCA o domínio da aplicação
-      const domain = 'stmv1.udicast.com';
+      // Usar sistema de porta em vez de subdomínio
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? 'http://samhost.wcore.com.br:3001'
+        : 'http://localhost:3001';
       
-      // Construir URL do player externo
-      return `https://${domain}:1443/play.php?login=${userLogin}&video=${folderName}/${finalFileName}`;
+      // Construir URL do player na porta do sistema
+      return `${baseUrl}/api/player-port/iframe?login=${userLogin}&vod=${folderName}/${finalFileName}&player=1&contador=true&compartilhamento=true`;
     }
     
     return '';

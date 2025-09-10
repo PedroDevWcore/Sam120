@@ -53,26 +53,37 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
   const [showStats, setShowStats] = useState(false);
   const [isDisposed, setIsDisposed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [isMounted, setIsMounted] = useState(true);
   const maxRetries = 3;
 
   // Cleanup function
   const cleanupPlayer = () => {
-    if (playerRef.current && !isDisposed) {
+    if (playerRef.current && !isDisposed && isMounted) {
       try {
         console.log('🧹 Limpando Video.js player...');
         setIsDisposed(true);
         
         // Remove all event listeners first
-        playerRef.current.off();
+        if (typeof playerRef.current.off === 'function') {
+          playerRef.current.off();
+        }
         
         // Pause and reset
         if (typeof playerRef.current.pause === 'function') {
-          playerRef.current.pause();
+          try {
+            playerRef.current.pause();
+          } catch (pauseError) {
+            console.warn('Erro ao pausar player:', pauseError);
+          }
         }
         
         // Dispose of the player
         if (typeof playerRef.current.dispose === 'function') {
-          playerRef.current.dispose();
+          try {
+            playerRef.current.dispose();
+          } catch (disposeError) {
+            console.warn('Erro ao fazer dispose do player:', disposeError);
+          }
         }
         
         playerRef.current = null;
@@ -89,12 +100,12 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
 
   // Carregar Video.js dinamicamente
   useEffect(() => {
-    let mounted = true;
+    setIsMounted(true);
     
     const loadVideoJS = async () => {
       // Verificar se Video.js já está carregado
       if (window.videojs) {
-        if (mounted) {
+        if (isMounted) {
           initializePlayer();
         }
         return;
@@ -119,38 +130,38 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
               const hlsScript = document.createElement('script');
               hlsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/videojs-contrib-hls/5.15.0/videojs-contrib-hls.min.js';
               hlsScript.onload = () => {
-                if (mounted) {
+                if (isMounted) {
                   initializePlayer();
                 }
               };
               hlsScript.onerror = () => {
-                if (mounted) {
+                if (isMounted) {
                   setError('Erro ao carregar plugin HLS');
                   setLoading(false);
                 }
               };
               document.head.appendChild(hlsScript);
             } else {
-              if (mounted) {
+              if (isMounted) {
                 initializePlayer();
               }
             }
           };
           script.onerror = () => {
-            if (mounted) {
+            if (isMounted) {
               setError('Erro ao carregar Video.js');
               setLoading(false);
             }
           };
           document.head.appendChild(script);
         } else {
-          if (mounted) {
+          if (isMounted) {
             initializePlayer();
           }
         }
       } catch (error) {
         console.error('Erro ao carregar Video.js:', error);
-        if (mounted) {
+        if (isMounted) {
           setError('Erro ao carregar player');
           setLoading(false);
         }
@@ -158,7 +169,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
     };
 
     const initializePlayer = () => {
-      if (!videoRef.current || !window.videojs || isDisposed || !mounted) return;
+      if (!videoRef.current || !window.videojs || isDisposed || !isMounted) return;
 
       try {
         setLoading(true);
@@ -169,11 +180,24 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         if (!videoRef.current.parentNode) {
           console.warn('⚠️ Video element não está no DOM, aguardando...');
           setTimeout(() => {
-            if (mounted && !isDisposed) {
+            if (isMounted && !isDisposed) {
               initializePlayer();
             }
           }, 100);
           return;
+        }
+
+        // Verificar se o elemento já tem um player
+        if (videoRef.current.hasAttribute('data-vjs-player')) {
+          console.log('🔄 Elemento já tem player, limpando...');
+          try {
+            const existingPlayer = window.videojs.getPlayer(videoRef.current);
+            if (existingPlayer) {
+              existingPlayer.dispose();
+            }
+          } catch (cleanupError) {
+            console.warn('Erro ao limpar player existente:', cleanupError);
+          }
         }
 
         console.log('🎥 Inicializando Video.js player...');
@@ -199,7 +223,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
             trackingThreshold: 20,
             liveTolerance: 15
           } : false,
-          inactivityTimeout: 0, // Disable inactivity timeout
+          inactivityTimeout: 0,
           userActions: {
             hotkeys: true
           }
@@ -210,7 +234,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
 
         // Event listeners with error handling
         player.ready(() => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           
           console.log('✅ Video.js player pronto');
           setIsPlayerReady(true);
@@ -226,13 +250,13 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
           }
           
           // Configurar fonte inicial se disponível
-          if (src && mounted && !isDisposed) {
+          if (src && isMounted && !isDisposed) {
             updatePlayerSource();
           }
         });
 
         player.on('play', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           console.log('▶️ Video.js play');
           if (onPlay) {
             try {
@@ -244,7 +268,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         });
 
         player.on('pause', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           console.log('⏸️ Video.js pause');
           if (onPause) {
             try {
@@ -256,7 +280,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         });
 
         player.on('ended', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           console.log('🔚 Video.js ended');
           if (onEnded) {
             try {
@@ -268,7 +292,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         });
 
         player.on('error', (e: any) => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           
           console.error('❌ Video.js error:', e);
           const errorObj = player.error();
@@ -306,29 +330,29 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         });
 
         player.on('loadstart', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           setLoading(true);
           setError(null);
         });
 
         player.on('canplay', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           setLoading(false);
         });
 
         player.on('waiting', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           setLoading(true);
         });
 
         player.on('playing', () => {
-          if (!mounted || isDisposed) return;
+          if (!isMounted || isDisposed) return;
           setLoading(false);
         });
 
       } catch (error) {
         console.error('Erro ao inicializar Video.js:', error);
-        if (mounted) {
+        if (isMounted) {
           setError('Erro ao inicializar player');
           setLoading(false);
           
@@ -337,7 +361,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
             console.log(`🔄 Tentativa ${retryCount + 1}/${maxRetries} de reinicializar player...`);
             setRetryCount(prev => prev + 1);
             setTimeout(() => {
-              if (mounted && !isDisposed) {
+              if (isMounted && !isDisposed) {
                 initializePlayer();
               }
             }, 1000 * (retryCount + 1));
@@ -349,20 +373,20 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
     loadVideoJS();
 
     return () => {
-      mounted = false;
+      setIsMounted(false);
       cleanupPlayer();
     };
   }, []); // Only run once on mount
 
   // Atualizar fonte quando src mudar
   useEffect(() => {
-    if (isPlayerReady && playerRef.current && src && !isDisposed) {
+    if (isPlayerReady && playerRef.current && src && !isDisposed && isMounted) {
       updatePlayerSource();
     }
   }, [src, isPlayerReady]);
 
   const updatePlayerSource = () => {
-    if (!playerRef.current || !src || isDisposed) return;
+    if (!playerRef.current || !src || isDisposed || !isMounted) return;
 
     try {
       console.log('🎥 Atualizando fonte Video.js:', src);
@@ -383,7 +407,7 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
           sourceConfig.withCredentials = true;
           // Para Video.js, configurar headers via xhr
           playerRef.current.ready(() => {
-            if (isDisposed) return;
+            if (isDisposed || !isMounted) return;
             
             try {
               const tech = playerRef.current.tech();
@@ -402,22 +426,40 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
       }
 
       // Clear any existing source first
-      playerRef.current.pause();
-      playerRef.current.src('');
+      if (typeof playerRef.current.pause === 'function') {
+        try {
+          playerRef.current.pause();
+        } catch (pauseError) {
+          console.warn('Erro ao pausar antes de trocar fonte:', pauseError);
+        }
+      }
+      
+      if (typeof playerRef.current.src === 'function') {
+        try {
+          playerRef.current.src('');
+        } catch (srcError) {
+          console.warn('Erro ao limpar fonte:', srcError);
+        }
+      }
       
       // Wait a bit before setting new source
       setTimeout(() => {
-        if (playerRef.current && !isDisposed) {
-          playerRef.current.src(sourceConfig);
-          
-          if (autoplay) {
-            setTimeout(() => {
-              if (playerRef.current && !isDisposed) {
-                playerRef.current.play().catch((error: any) => {
-                  console.warn('Autoplay falhou:', error);
-                });
-              }
-            }, 500);
+        if (playerRef.current && !isDisposed && isMounted) {
+          try {
+            playerRef.current.src(sourceConfig);
+            
+            if (autoplay) {
+              setTimeout(() => {
+                if (playerRef.current && !isDisposed && isMounted) {
+                  playerRef.current.play().catch((error: any) => {
+                    console.warn('Autoplay falhou:', error);
+                  });
+                }
+              }, 500);
+            }
+          } catch (sourceError) {
+            console.error('Erro ao definir nova fonte:', sourceError);
+            setError('Erro ao carregar vídeo');
           }
         }
       }, 100);
@@ -433,13 +475,13 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
     setLoading(true);
     setRetryCount(0);
     
-    if (playerRef.current && src && !isDisposed) {
+    if (playerRef.current && src && !isDisposed && isMounted) {
       updatePlayerSource();
     } else {
       // Reinitialize player if needed
       cleanupPlayer();
       setTimeout(() => {
-        if (!isDisposed) {
+        if (!isDisposed && isMounted) {
           window.location.reload(); // Force reload as last resort
         }
       }, 1000);
@@ -463,9 +505,23 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      setIsMounted(false);
       cleanupPlayer();
     };
   }, []);
+
+  // Não renderizar se não há src
+  if (!src) {
+    return (
+      <div className={`aspect-video bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex flex-col items-center justify-center text-white ${className}`}>
+        <Play className="h-16 w-16 mb-4 text-gray-400" />
+        <h3 className="text-xl font-semibold mb-2">Video.js Player</h3>
+        <p className="text-gray-400 text-center max-w-md">
+          Player profissional com suporte completo a HLS, MP4 e recursos avançados
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className={`videojs-player-container relative ${className}`}>
@@ -565,31 +621,19 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
         </div>
       )}
 
-      {/* Placeholder quando não há vídeo */}
-      {!src && (
-        <div className="aspect-video bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex flex-col items-center justify-center text-white">
-          <Play className="h-16 w-16 mb-4 text-gray-400" />
-          <h3 className="text-xl font-semibold mb-2">Video.js Player</h3>
-          <p className="text-gray-400 text-center max-w-md">
-            Player profissional com suporte completo a HLS, MP4 e recursos avançados
-          </p>
-        </div>
-      )}
-
       {/* Elemento de vídeo para Video.js */}
       <video
         ref={videoRef}
-        className={`video-js vjs-default-skin w-full ${!src ? 'hidden' : ''}`}
+        className="video-js vjs-default-skin w-full"
         controls={controls}
         preload="auto"
         data-setup="{}"
         playsInline
         crossOrigin="anonymous"
-        style={{ display: src ? 'block' : 'none' }}
       />
 
       {/* Título do vídeo */}
-      {title && src && (
+      {title && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 pointer-events-none rounded-b-lg">
           <h3 className="text-white text-lg font-semibold truncate">{title}</h3>
           {streamStats && (

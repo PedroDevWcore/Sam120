@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, Play, Copy, Eye, Settings, Monitor, Smartphone, Globe, Code, ExternalLink, X, Maximize, Minimize, CheckCircle } from 'lucide-react';
+import { ChevronLeft, Play, Copy, Eye, Settings, Monitor, Smartphone, Globe, Code, ExternalLink, X, Maximize, Minimize, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
-import VideoJSPlayer from '../../components/VideoJSPlayer';
-import StreamingPlayerManager from '../../components/StreamingPlayerManager';
+import IFrameVideoPlayer from '../../components/IFrameVideoPlayer';
 
 interface PlayerConfig {
   id: string;
@@ -27,20 +26,23 @@ interface Video {
 
 const Players: React.FC = () => {
   const { user, getToken } = useAuth();
-  const [activePlayer, setActivePlayer] = useState<string>('universal');
+  const [activePlayer, setActivePlayer] = useState<string>('iframe-port');
   const [showPreview, setShowPreview] = useState(false);
   const [previewVideo, setPreviewVideo] = useState<Video | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sampleVideos, setSampleVideos] = useState<Video[]>([]);
   const [liveStreamActive, setLiveStreamActive] = useState(false);
   const [obsStreamActive, setObsStreamActive] = useState(false);
+  const [playerUrl, setPlayerUrl] = useState('');
+  const [embedCode, setEmbedCode] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const userLogin = user?.usuario || (user?.email ? user.email.split('@')[0] : `user_${user?.id || 'usuario'}`);
-  const liveStreamUrl = `http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`;
 
   useEffect(() => {
     loadSampleVideos();
     checkLiveStreams();
+    generatePlayerUrls();
     
     // Verificar streams a cada 30 segundos
     const interval = setInterval(checkLiveStreams, 30000);
@@ -95,6 +97,25 @@ const Players: React.FC = () => {
     }
   };
 
+  const generatePlayerUrls = async () => {
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/player-port/url', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setPlayerUrl(data.player_url);
+          setEmbedCode(data.embed_code);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao gerar URLs do player:', error);
+    }
+  };
+
   const getActiveStreamUrl = () => {
     if (obsStreamActive) {
       return `http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`;
@@ -103,7 +124,7 @@ const Players: React.FC = () => {
     } else if (sampleVideos.length > 0) {
       return getVideoUrl(sampleVideos[0].url);
     }
-    return liveStreamUrl;
+    return `http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`;
   };
 
   const getActiveStreamName = () => {
@@ -118,32 +139,46 @@ const Players: React.FC = () => {
   const getVideoUrl = (url: string) => {
     if (!url) return '';
     
-    const userLogin = user?.email?.split('@')[0] || 'usuario';
-    
     // Se já é uma URL completa, usar como está
     if (url.startsWith('http')) {
       return url;
     }
     
-    // Para URLs do sistema, construir URL do player iframe
+    // Para URLs do sistema, construir URL do player iframe na porta
     const pathParts = url.split('/');
     if (pathParts.length >= 3) {
       const userPath = pathParts[0];
       const folderName = pathParts[1];
       const fileName = pathParts[2];
       
-      // Usar player iframe para melhor compatibilidade
-      return `/api/players/iframe?login=${userPath}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=false`;
+      // Usar player na porta do sistema
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? 'http://samhost.wcore.com.br:3001'
+        : 'http://localhost:3001';
+      
+      return `${baseUrl}/api/player-port/iframe?login=${userPath}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=false`;
     }
     
-    // Fallback para URL direta
-    const fileName = url.split('/').pop() || 'video.mp4';
-    const folderName = 'default';
+    // Fallback
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? 'http://samhost.wcore.com.br:3001'
+      : 'http://localhost:3001';
     
-    return `/api/players/iframe?login=${userLogin}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=false`;
+    return `${baseUrl}/api/player-port/iframe?stream=${userLogin}_live`;
   };
 
   const playerConfigs: PlayerConfig[] = [
+    {
+      id: 'iframe-port',
+      name: 'Player iFrame (Porta do Sistema)',
+      description: 'Player via iFrame usando a porta 3001 do sistema atual',
+      icon: Monitor,
+      type: 'iframe',
+      features: ['Mesma Porta', 'Sem Subdomínio', 'Integração Direta', 'Fácil Deploy'],
+      code: embedCode || `<iframe src="${playerUrl}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`,
+      previewUrl: playerUrl || '',
+      isActive: true
+    },
     {
       id: 'universal',
       name: 'Player Universal',
@@ -163,23 +198,23 @@ const Players: React.FC = () => {
   });
 </script>`,
       previewUrl: getActiveStreamUrl(),
-      isActive: true
+      isActive: false
     },
     {
-      id: 'iframe',
-      name: 'Player iFrame',
-      description: 'Incorporação simples via iFrame para sites externos',
+      id: 'iframe-external',
+      name: 'Player iFrame (Subdomínio)',
+      description: 'Player via subdomínio externo (playerv.samhost.wcore.com.br)',
       icon: Globe,
       type: 'iframe',
-      features: ['Fácil Incorporação', 'Responsivo', 'Seguro', 'Cross-domain'],
+      features: ['Subdomínio Dedicado', 'Isolado', 'Múltiplos Players', 'Detecção Automática'],
       code: `<iframe 
- src="/api/players/iframe?stream=${getActiveStreamName()}" 
+  src="https://playerv.samhost.wcore.com.br/?login=${userLogin}&player=1" 
   width="640" 
   height="360" 
   frameborder="0" 
   allowfullscreen>
 </iframe>`,
-      previewUrl: `/api/players/iframe?stream=${getActiveStreamName()}`,
+      previewUrl: `https://playerv.samhost.wcore.com.br/?login=${userLogin}&player=1`,
       isActive: false
     },
     {
@@ -226,68 +261,17 @@ const Players: React.FC = () => {
 </style>`,
       previewUrl: getActiveStreamUrl(),
       isActive: false
-    },
-    {
-      id: 'facebook',
-      name: 'Player Facebook',
-      description: 'Compatível com Facebook Live e redes sociais',
-      icon: Globe,
-      type: 'facebook',
-      features: ['Facebook Live', 'Social Media', 'Compartilhamento', 'Embeds'],
-      code: `<div class="fb-video" 
-     data-href="/api/players/social?stream=${getActiveStreamName()}" 
-     data-width="640" 
-     data-show-text="false">
-</div>
-<script async defer crossorigin="anonymous" 
-        src="https://connect.facebook.net/pt_BR/sdk.js#xfbml=1&version=v18.0">
-</script>`,
-      previewUrl: `/api/players/social?stream=${getActiveStreamName()}`,
-      isActive: false
-    },
-    {
-      id: 'android',
-      name: 'Player Android',
-      description: 'Otimizado para aplicativos Android nativos',
-      icon: Smartphone,
-      type: 'android',
-      features: ['ExoPlayer', 'Android Nativo', 'Hardware Accel', 'Background Play'],
-      code: `// Android ExoPlayer
-SimpleExoPlayer player = new SimpleExoPlayer.Builder(context).build();
-playerView.setPlayer(player);
-
-MediaItem mediaItem = MediaItem.fromUri("${getActiveStreamUrl()}");
-player.setMediaItem(mediaItem);
-player.prepare();
-player.play();`,
-      previewUrl: getActiveStreamUrl(),
-      isActive: false
     }
   ];
 
-  // Função para abrir vídeo em nova aba
-  const openVideoInNewTab = (videoUrl: string, useDirectWowza = true) => {
-    // SEMPRE usar o IP do servidor Wowza
-    const wowzaHost = '51.222.156.223';
-    const wowzaUser = 'admin';
-    const wowzaPassword = 'FK38Ca2SuE6jvJXed97VMn';
-    
-    if (useDirectWowza) {
-      // Usar URL direta do Wowza com autenticação para melhor performance
-      let externalUrl = videoUrl;
-      if (videoUrl.startsWith('/content')) {
-        externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980${videoUrl}`;
-      } else if (!videoUrl.startsWith('http')) {
-        externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980/content/${videoUrl}`;
-      }
-      window.open(externalUrl, '_blank');
-    } else {
-      // Fallback para proxy do backend
-      window.open(videoUrl, '_blank');
-    }
-  };
   const activatePlayer = (playerId: string) => {
     setActivePlayer(playerId);
+    
+    // Regenerar URLs se for o player da porta
+    if (playerId === 'iframe-port') {
+      generatePlayerUrls();
+    }
+    
     toast.success(`Player ${playerConfigs.find(p => p.id === playerId)?.name} ativado!`);
   };
 
@@ -303,7 +287,7 @@ player.play();`,
       setPreviewVideo({
         id: 0,
         nome: 'Stream ao Vivo',
-        url: liveStreamUrl
+        url: getActiveStreamUrl()
       });
     }
     setShowPreview(true);
@@ -334,30 +318,38 @@ player.play();`,
     }
 
     switch (config.type) {
-      case 'universal':
-        return (
-          <div className="h-48 bg-black rounded-lg overflow-hidden">
-            <VideoJSPlayer
-              src={sampleVideos[0]?.url || liveStreamUrl}
-              title={sampleVideos[0]?.nome || 'Stream ao Vivo'}
-              isLive={!sampleVideos[0]}
-              autoplay={false}
-            />
-          </div>
-        );
-
       case 'iframe':
-        return (
-          <div className="h-48 bg-black rounded-lg overflow-hidden">
-            <iframe
-              src={config.previewUrl}
-              className="w-full h-full"
-              frameBorder="0"
-              allowFullScreen
-              title="Player Preview"
-            />
-          </div>
-        );
+        if (config.id === 'iframe-port' && playerUrl) {
+          return (
+            <div className="h-48 bg-black rounded-lg overflow-hidden">
+              <IFrameVideoPlayer
+                src={playerUrl}
+                title="Player na Porta do Sistema"
+                autoplay={false}
+                controls={true}
+                className="w-full h-full"
+                onError={(error) => {
+                  console.error('Erro no IFrame player:', error);
+                }}
+                onReady={() => {
+                  console.log('IFrame player pronto');
+                }}
+              />
+            </div>
+          );
+        } else {
+          return (
+            <div className="h-48 bg-black rounded-lg overflow-hidden">
+              <iframe
+                src={config.previewUrl}
+                className="w-full h-full"
+                frameBorder="0"
+                allowFullScreen
+                title="Player Preview"
+              />
+            </div>
+          );
+        }
 
       case 'html5':
         return (
@@ -368,8 +360,8 @@ player.play();`,
               muted
               poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23000'/%3E%3Ctext x='320' y='180' text-anchor='middle' fill='white' font-family='Arial' font-size='24'%3EHTML5 Player%3C/text%3E%3C/svg%3E"
             >
-              <source src={sampleVideos[0]?.url || liveStreamUrl} type="application/vnd.apple.mpegurl" />
-              <source src={sampleVideos[0]?.url || liveStreamUrl} type="video/mp4" />
+              <source src={sampleVideos[0]?.url || getActiveStreamUrl()} type="application/vnd.apple.mpegurl" />
+              <source src={sampleVideos[0]?.url || getActiveStreamUrl()} type="video/mp4" />
             </video>
           </div>
         );
@@ -385,34 +377,6 @@ player.play();`,
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'facebook':
-        return (
-          <div className="h-48 bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg flex items-center justify-center">
-            <div className="text-center text-white">
-              <Globe className="h-12 w-12 mx-auto mb-3" />
-              <div className="text-lg font-semibold">Player Facebook Ativo</div>
-              <div className="text-sm opacity-80">Compatível com redes sociais</div>
-              <div className="mt-3 px-4 py-2 bg-white bg-opacity-20 rounded-full text-xs">
-                Social Media Ready
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'android':
-        return (
-          <div className="h-48 bg-gradient-to-br from-green-500 to-green-700 rounded-lg flex items-center justify-center">
-            <div className="text-center text-white">
-              <Smartphone className="h-12 w-12 mx-auto mb-3" />
-              <div className="text-lg font-semibold">Player Android Ativo</div>
-              <div className="text-sm opacity-80">ExoPlayer integrado</div>
-              <div className="mt-3 px-4 py-2 bg-white bg-opacity-20 rounded-full text-xs">
-                Hardware Accelerated
               </div>
             </div>
           </div>
@@ -444,6 +408,25 @@ player.play();`,
         <h1 className="text-3xl font-bold text-gray-900">Players de Vídeo</h1>
       </div>
 
+      {/* Informações sobre o novo sistema */}
+      <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+        <div className="flex items-start">
+          <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5" />
+          <div>
+            <h3 className="text-green-900 font-medium mb-2">🚀 Sistema de Player na Porta do Sistema</h3>
+            <ul className="text-green-800 text-sm space-y-1">
+              <li>• <strong>Mesma porta do sistema:</strong> Usa a porta 3001 (backend) em vez de subdomínio</li>
+              <li>• <strong>Deploy simplificado:</strong> Não precisa configurar subdomínio separado</li>
+              <li>• <strong>Integração direta:</strong> Acesso direto às APIs e autenticação</li>
+              <li>• <strong>Fallback automático:</strong> Se porta não funcionar, usa subdomínio</li>
+              <li>• <strong>URLs de exemplo:</strong></li>
+              <li>&nbsp;&nbsp;- Desenvolvimento: http://localhost:3001/api/player-port/iframe</li>
+              <li>&nbsp;&nbsp;- Produção: http://samhost.wcore.com.br:3001/api/player-port/iframe</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Player Ativo */}
       <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-500">
         <div className="flex items-center justify-between mb-4">
@@ -460,6 +443,14 @@ player.play();`,
             <span className="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">
               {playerConfigs.find(p => p.id === activePlayer)?.name}
             </span>
+            <button
+              onClick={generatePlayerUrls}
+              disabled={loading}
+              className="text-primary-600 hover:text-primary-800 flex items-center text-sm"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar URLs
+            </button>
           </div>
         </div>
 
@@ -502,7 +493,7 @@ player.play();`,
               )}
               
               <button
-                onClick={() => window.open(`/api/players/iframe?stream=${userLogin}_live`, '_blank')}
+                onClick={() => window.open(playerUrl || `/api/player-port/iframe?stream=${userLogin}_live`, '_blank')}
                 className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center justify-center"
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
@@ -571,7 +562,7 @@ player.play();`,
                 Copiar Código
               </button>
               
-              {(config.id === 'iframe' || config.id === 'facebook') && (
+              {config.type === 'iframe' && config.previewUrl && (
                 <button
                   onClick={() => window.open(config.previewUrl, '_blank')}
                   className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center justify-center"
@@ -602,7 +593,7 @@ player.play();`,
                     <Copy className="h-4 w-4 mr-1" />
                     Copiar
                   </button>
-                  {(config.id === 'iframe' || config.id === 'facebook') && (
+                  {config.type === 'iframe' && config.previewUrl && (
                     <button
                       onClick={() => window.open(config.previewUrl, '_blank')}
                       className="text-blue-600 hover:text-blue-800 flex items-center"
@@ -662,22 +653,19 @@ player.play();`,
 
             {/* Player */}
             <div className={`w-full h-full ${isFullscreen ? 'p-0' : 'p-4 pt-16'}`}>
-              <VideoJSPlayer
-                src={previewVideo ? getVideoUrl(previewVideo.url) : undefined}
+              <IFrameVideoPlayer
+                src={playerUrl || previewVideo?.url || getActiveStreamUrl()}
                 title={previewVideo?.nome}
                 isLive={previewVideo?.id === 0}
                 autoplay={true}
                 controls={true}
                 className="w-full h-full"
-                streamStats={previewVideo?.id === 0 ? {
-                  viewers: Math.floor(Math.random() * 50) + 5,
-                  bitrate: 2500,
-                  uptime: '00:15:30',
-                  quality: '1080p'
-                } : undefined}
                 onError={(error) => {
-                  console.error('Erro no Video.js:', error);
+                  console.error('Erro no player de preview:', error);
                   toast.error('Erro ao carregar vídeo');
+                }}
+                onReady={() => {
+                  console.log('Player de preview pronto');
                 }}
               />
             </div>
@@ -687,7 +675,7 @@ player.play();`,
 
       {/* Informações Técnicas */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="text-blue-900 font-medium mb-3">📋 Sistema de Player Externo</h3>
+        <h3 className="text-blue-900 font-medium mb-3">📋 Comparação de Sistemas</h3>
         
         {/* Status das transmissões */}
         <div className="mb-4 p-3 bg-white rounded-md">
@@ -710,32 +698,31 @@ player.play();`,
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-blue-800 text-sm">
           <div>
-            <h4 className="font-medium mb-2">Recursos do Sistema:</h4>
+            <h4 className="font-medium mb-2">Sistema de Porta (Recomendado):</h4>
             <ul className="space-y-1">
-              <li>• <strong>Subdomínio Dedicado:</strong> playerv.samhost.wcore.com.br</li>
-              <li>• <strong>Detecção Automática:</strong> Verifica transmissões ativas</li>
-              <li>• <strong>Múltiplos Players:</strong> Video.js, Clappr, JW Player, etc.</li>
-              <li>• <strong>Sem Sinal:</strong> Tela automática quando offline</li>
-              <li>• <strong>Integração Total:</strong> Conectado ao painel e Wowza</li>
+              <li>• <strong>URL:</strong> samhost.wcore.com.br:3001/api/player-port/iframe</li>
+              <li>• <strong>Vantagem:</strong> Não precisa configurar subdomínio</li>
+              <li>• <strong>Deploy:</strong> Funciona automaticamente</li>
+              <li>• <strong>Autenticação:</strong> Integrada ao sistema</li>
+              <li>• <strong>Manutenção:</strong> Mais simples</li>
             </ul>
           </div>
           <div>
-            <h4 className="font-medium mb-2">Funcionalidades:</h4>
+            <h4 className="font-medium mb-2">Sistema de Subdomínio (Alternativo):</h4>
             <ul className="space-y-1">
-              <li>• <strong>Contador:</strong> Espectadores em tempo real</li>
-              <li>• <strong>Social:</strong> Compartilhamento integrado</li>
-              <li>• <strong>VOD:</strong> Suporte a vídeos específicos</li>
-              <li>• <strong>Auto-reload:</strong> Verifica novas transmissões</li>
-              <li>• <strong>Responsivo:</strong> Adapta a qualquer tela</li>
+              <li>• <strong>URL:</strong> playerv.samhost.wcore.com.br</li>
+              <li>• <strong>Vantagem:</strong> Isolamento completo</li>
+              <li>• <strong>Deploy:</strong> Requer configuração DNS</li>
+              <li>• <strong>Recursos:</strong> Múltiplos players</li>
+              <li>• <strong>Detecção:</strong> Automática de transmissões</li>
             </ul>
           </div>
         </div>
         
         <div className="mt-4 p-3 bg-blue-100 rounded-md">
           <p className="text-blue-900 text-sm">
-            <strong>🚀 Sistema Externo Inteligente:</strong> O player externo detecta automaticamente se há 
-            transmissões ativas no painel e exibe o conteúdo correspondente. Quando não há transmissão, 
-            mostra uma tela de "sem sinal" e recarrega automaticamente para verificar novas transmissões.
+            <strong>💡 Recomendação:</strong> Use o sistema de porta para deploy mais simples. 
+            O player funciona na mesma porta do backend (3001) e não requer configuração adicional de DNS ou subdomínio.
           </p>
         </div>
         
@@ -747,25 +734,6 @@ player.play();`,
           </div>
         )}
       </div>
-
-      {/* Gerenciador de Streaming Avançado */}
-      <StreamingPlayerManager
-        videoUrl={getActiveStreamUrl()}
-        isLive={obsStreamActive || liveStreamActive}
-        title={obsStreamActive ? 'Transmissão OBS ao Vivo' : 
-               liveStreamActive ? 'Transmissão Playlist ao Vivo' : 
-               'Player de Demonstração'}
-        streamStats={{
-          viewers: Math.floor(Math.random() * 50) + 5,
-          bitrate: 2500,
-          uptime: '01:23:45',
-          quality: '1080p',
-          isRecording: false
-        }}
-        enableSocialSharing={true}
-        enableViewerCounter={true}
-        enableWatermark={true}
-      />
     </div>
   );
 };

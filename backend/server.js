@@ -31,6 +31,7 @@ const appAndroidRoutes = require('./routes/app-android');
 const smilManagementRoutes = require('./routes/smil-management');
 const dadosConexaoRoutes = require('./routes/dados-conexao');
 const playerExternalRoutes = require('./routes/player-external');
+const playerPortRoutes = require('./routes/player-port');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -330,6 +331,7 @@ app.use('/api/app-android', appAndroidRoutes);
 app.use('/api/smil-management', smilManagementRoutes);
 app.use('/api/dados-conexao', dadosConexaoRoutes);
 app.use('/api/player-external', playerExternalRoutes);
+app.use('/api/player-port', playerPortRoutes);
 
 app.get('/api/test', (req, res) => res.json({ message: 'API funcionando!', timestamp: new Date().toISOString() }));
 
